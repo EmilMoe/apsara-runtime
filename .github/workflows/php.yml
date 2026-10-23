@@ -115,6 +115,10 @@ jobs:
 
       - name: Build
         run: ${{ env.SPC }} build "${{ env.EXT }}" --build-cli ${{ env.BUILD_SHARED }}
+        env:
+          # The prebuilt ICU (78+) needs C++17, which PHP 8.3's Windows build doesn't ask for when it
+          # compiles intl (8.4+ does). MSVC adds CL to every cl.exe call; macOS ignores it.
+          CL: ${{ matrix.target == 'windows-x64' && '/std:c++17' || '' }}
 
       # spc only prints "command failed"; the compiler output is in its own log files.
       - name: Show build log
