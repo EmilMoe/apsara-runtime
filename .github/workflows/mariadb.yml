@@ -5,8 +5,9 @@ name: MariaDB
 # winx64 zip directly.
 #
 # Copy this file to .github/workflows/mariadb.yml in EmilMoe/apsara-runtime and run it.
-# Each version gets a release mariadb-<version> with one archive per platform (bin/, share/,
-# scripts/ ... at the top level), and mariadb.json lists the newest build per series.
+# Each version gets a release mariadb-<version> with one archive per platform (bin/, share/ ...
+# at the top level; mariadb-install-db goes in bin/ as on Windows, where Apsara looks for it),
+# and mariadb.json lists the newest build per series.
 on:
   workflow_dispatch:
     inputs:
@@ -53,6 +54,7 @@ jobs:
           cmake -S "mariadb-$VERSION" -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX="$PWD/install" \
+            -DINSTALL_SCRIPTDIR=bin \
             -DBISON_EXECUTABLE="$(brew --prefix bison)/bin/bison" \
             -DWITH_SSL=system -DOPENSSL_ROOT_DIR="$(brew --prefix openssl@3)" -DOPENSSL_USE_STATIC_LIBS=ON \
             -DWITH_ZLIB=bundled -DWITH_PCRE=bundled \
