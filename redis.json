@@ -1,0 +1,15 @@
+{
+  "8": {
+    "files": {
+      "macos-aarch64": {
+        "sha256": "fe6f13a672283e1fdccecc1128642f960aec78a8faed5257cbc51330d183772b",
+        "url": "https://github.com/EmilMoe/apsara-runtime/releases/download/redis-8.10.2/redis-8.10.2-macos-aarch64.tar.gz"
+      },
+      "macos-x86_64": {
+        "sha256": "19ab6e2d24fd4588dc0e041f5d5a84d15d8831b42bea1d3cbe7f2aa46219967a",
+        "url": "https://github.com/EmilMoe/apsara-runtime/releases/download/redis-8.10.2/redis-8.10.2-macos-x86_64.tar.gz"
+      }
+    },
+    "version": "8.10.2"
+  }
+}
