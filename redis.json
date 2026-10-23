@@ -1,4 +1,17 @@
 {
+  "7": {
+    "files": {
+      "macos-aarch64": {
+        "sha256": "514f90d57ba57bf1e611ac42020afcf71afa17d589e330295c210754234dadec",
+        "url": "https://github.com/EmilMoe/apsara-runtime/releases/download/redis-7.4.11/redis-7.4.11-macos-aarch64.tar.gz"
+      },
+      "macos-x86_64": {
+        "sha256": "cef7880b333d2a10ae4f075ab60eabb7f2f01f7afcce38111b8e66363d052d02",
+        "url": "https://github.com/EmilMoe/apsara-runtime/releases/download/redis-7.4.11/redis-7.4.11-macos-x86_64.tar.gz"
+      }
+    },
+    "version": "7.4.11"
+  },
   "8": {
     "files": {
       "macos-aarch64": {
