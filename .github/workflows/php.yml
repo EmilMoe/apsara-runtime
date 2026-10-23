@@ -21,8 +21,13 @@ env:
   SPC_VERSION: "2.8.5"
   # Both platforms.
   EXTENSIONS: "bcmath,bz2,calendar,ctype,curl,dom,exif,fileinfo,filter,ftp,gd,iconv,intl,mbstring,mbregex,mysqli,mysqlnd,opcache,openssl,pdo,pdo_mysql,pdo_pgsql,pdo_sqlite,pgsql,phar,redis,session,simplexml,soap,sockets,sodium,sqlite3,tokenizer,xml,xmlreader,xmlwriter,zip,zlib"
-  # static-php-cli can't build these for Windows (yet).
-  UNIX_EXTENSIONS: "gmp,pcntl,posix,readline,xsl,imagick"
+  # static-php-cli can't build these for Windows (yet). spx is the profiler Apsara turns on per site.
+  UNIX_EXTENSIONS: "gmp,pcntl,posix,readline,xsl,imagick,spx"
+  # Built as separate .so files next to php (macOS only), loaded with -d zend_extension= when a site
+  # turns debugging on. Xdebug can only be built shared; static-php-cli can't build it for Windows yet.
+  SHARED_EXTENSIONS: "xdebug"
+  # Pinned: static-php-cli takes Xdebug's newest GitHub release, and 3.6.0alpha1 is published as one.
+  XDEBUG_VERSION: "3.5.3"
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 permissions:
@@ -66,12 +71,18 @@ jobs:
             curl -fsSL "$url" -o spc.exe
             echo "SPC=./spc.exe" >> "$GITHUB_ENV"
             echo "EXT=$EXTENSIONS" >> "$GITHUB_ENV"
+            echo "DOWNLOAD_EXT=$EXTENSIONS" >> "$GITHUB_ENV"
+            echo "BUILD_SHARED=" >> "$GITHUB_ENV"
+            echo "XDEBUG_SOURCE=" >> "$GITHUB_ENV"
             echo "PHP_BIN=buildroot/bin/php.exe" >> "$GITHUB_ENV"
           else
             curl -fsSL "$url" | tar -xz
             chmod +x spc
             echo "SPC=./spc" >> "$GITHUB_ENV"
             echo "EXT=$EXTENSIONS,$UNIX_EXTENSIONS" >> "$GITHUB_ENV"
+            echo "DOWNLOAD_EXT=$EXTENSIONS,$UNIX_EXTENSIONS,$SHARED_EXTENSIONS" >> "$GITHUB_ENV"
+            echo "BUILD_SHARED=--build-shared=$SHARED_EXTENSIONS" >> "$GITHUB_ENV"
+            echo "XDEBUG_SOURCE=-U xdebug:https://github.com/xdebug/xdebug/archive/refs/tags/$XDEBUG_VERSION.tar.gz" >> "$GITHUB_ENV"
             echo "PHP_BIN=buildroot/bin/php" >> "$GITHUB_ENV"
           fi
 
@@ -97,13 +108,13 @@ jobs:
         with:
           path: downloads
           # A new release candidate changes CUSTOM_SOURCE, so it gets a fresh cache.
-          key: spc-downloads-${{ matrix.target }}-${{ matrix.php }}-${{ env.SPC_VERSION }}-${{ env.CUSTOM_SOURCE }}
+          key: spc-downloads-${{ matrix.target }}-${{ matrix.php }}-${{ env.SPC_VERSION }}-${{ env.CUSTOM_SOURCE }}-${{ env.XDEBUG_VERSION }}
 
       - name: Download sources
-        run: ${{ env.SPC }} download --with-php="${{ matrix.php }}" --for-extensions="${{ env.EXT }}" --prefer-pre-built ${{ env.CUSTOM_SOURCE }}
+        run: ${{ env.SPC }} download --with-php="${{ matrix.php }}" --for-extensions="${{ env.DOWNLOAD_EXT }}" --prefer-pre-built ${{ env.CUSTOM_SOURCE }} ${{ env.XDEBUG_SOURCE }}
 
       - name: Build
-        run: ${{ env.SPC }} build "${{ env.EXT }}" --build-cli
+        run: ${{ env.SPC }} build "${{ env.EXT }}" --build-cli ${{ env.BUILD_SHARED }}
 
       # spc only prints "command failed"; the compiler output is in its own log files.
       - name: Show build log
@@ -126,6 +137,13 @@ jobs:
             grep -qix "$ext" <<< "$modules" || { echo "::error::missing extension: $ext"; exit 1; }
           done
           "$PHP_BIN" -r 'echo (new NumberFormatter("da_DK", NumberFormatter::CURRENCY))->formatCurrency(1234.5, "DKK"), PHP_EOL;'
+          # Debugging (macOS): SPX built in, Xdebug loadable from its .so.
+          if [[ "${{ matrix.target }}" != windows-* ]]; then
+            grep -qix spx <<< "$modules" || { echo "::error::missing extension: spx"; exit 1; }
+            xdebug=$("$PHP_BIN" -d zend_extension="$PWD/buildroot/modules/xdebug.so" -v)
+            echo "$xdebug"
+            grep -q "with Xdebug" <<< "$xdebug" || { echo "::error::xdebug.so does not load"; exit 1; }
+          fi
 
       - name: Package
         shell: bash
@@ -137,7 +155,11 @@ jobs:
             (cd buildroot/bin && 7z a "../../dist/$name" php.exe > /dev/null)
           else
             name="php-${full}-cli-${{ matrix.target }}.tar.gz"
-            tar -czf "dist/$name" -C buildroot/bin php
+            # php, xdebug.so beside it, and SPX's web UI (the profiler's report pages) in spx-ui/.
+            mkdir -p package
+            cp buildroot/bin/php buildroot/modules/xdebug.so package/
+            cp -R source/php-src/ext/spx/assets/web-ui package/spx-ui
+            tar -czf "dist/$name" -C package .
           fi
           (cd dist && (sha256sum "$name" 2>/dev/null || shasum -a 256 "$name") | awk '{print $1}' > "$name.sha256")
           ls -la dist
@@ -186,18 +208,22 @@ jobs:
               gh release create "$tag" "${files[@]}" --repo "$REPO" --target main \
                 $([ "$prerelease" = true ] && echo --prerelease) \
                 --title "PHP $full" \
-                --notes "Static PHP $full for Apsara, built with static-php-cli $SPC_VERSION. Extensions: $EXTENSIONS (+ $UNIX_EXTENSIONS on macOS)."
+                --notes "Static PHP $full for Apsara, built with static-php-cli $SPC_VERSION. Extensions: $EXTENSIONS (+ $UNIX_EXTENSIONS on macOS, and $SHARED_EXTENSIONS as a separate .so)."
             fi
 
             minor=${full%.*}
             for file in "${files[@]}"; do
               name=$(basename "$file")
               target=$(sed -E 's/^php-[0-9A-Za-z.]+-cli-(.*)\.(tar\.gz|zip)$/\1/' <<< "$name")
+              # xdebug: the archive has xdebug.so and SPX (macOS), so the app offers the same version
+              # again to installs from before, which lack them.
+              debug=false
+              [[ "$target" != windows-* ]] && debug=true
               manifest=$(jq --arg minor "$minor" --arg full "$full" --arg target "$target" --argjson pre "$prerelease" \
                 --arg url "https://github.com/$REPO/releases/download/$tag/$name" \
-                --arg sha "$(cat "$file.sha256")" \
+                --arg sha "$(cat "$file.sha256")" --argjson debug "$debug" \
                 '.[$minor] |= (if (.version // "0") != $full then {version: $full, prerelease: $pre, files: {}} else . end)
-                 | .[$minor].files[$target] = {url: $url, sha256: $sha}' <<< "$manifest")
+                 | .[$minor].files[$target] = {url: $url, sha256: $sha, xdebug: $debug}' <<< "$manifest")
             done
           done
 
