@@ -1,0 +1,210 @@
+name: PHP
+
+# Static PHP builds for Apsara, made with static-php-cli. The ready-made static-php.dev
+# builds don't combine intl with pdo_sqlite, which Laravel and Filament need.
+#
+# Like Herd, Apsara downloads PHP on demand, separate from the app's own releases: each
+# full version gets a release php-<version> with one archive per platform, and php.json
+# lists the newest build per minor version (the app reads that file).
+# No secrets needed: nothing private is checked out.
+on:
+  workflow_dispatch:
+    inputs:
+      php-versions:
+        # 8.6 needs static-php-cli v3 (its 2.8.5 patches don't apply to 8.6 sources).
+        # When v3 is released: bump SPC_VERSION and add "8.6" here.
+        description: PHP minor versions as a JSON list
+        required: true
+        default: '["8.3", "8.4", "8.5"]'
+
+env:
+  SPC_VERSION: "2.8.5"
+  # Both platforms.
+  EXTENSIONS: "bcmath,bz2,calendar,ctype,curl,dom,exif,fileinfo,filter,ftp,gd,iconv,intl,mbstring,mbregex,mysqli,mysqlnd,opcache,openssl,pdo,pdo_mysql,pdo_pgsql,pdo_sqlite,pgsql,phar,redis,session,simplexml,soap,sockets,sodium,sqlite3,tokenizer,xml,xmlreader,xmlwriter,zip,zlib"
+  # static-php-cli can't build these for Windows (yet).
+  UNIX_EXTENSIONS: "gmp,pcntl,posix,readline,xsl,imagick"
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: PHP ${{ matrix.php }} (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ${{ fromJSON(inputs.php-versions) }}
+        target: [macos-aarch64, macos-x86_64, windows-x64]
+        include:
+          - target: macos-aarch64
+            runner: macos-15
+            spc: spc-macos-aarch64.tar.gz
+            shell: bash
+          - target: macos-x86_64
+            runner: macos-15-intel
+            spc: spc-macos-x86_64.tar.gz
+            shell: bash
+          # spc 2.8.5 only recognises Visual Studio 2019/2022, and needs Windows' own tar
+          # (PowerShell), not Git Bash's GNU tar, which can't handle D:\ paths.
+          - target: windows-x64
+            runner: windows-2022
+            spc: spc-windows-x64.exe
+            shell: pwsh
+    # spc runs in the matrix shell (PowerShell on Windows); the other steps say `shell: bash`.
+    # (Steps can't use `matrix` in `shell:`, job defaults can.)
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+    steps:
+      - name: Get static-php-cli
+        shell: bash
+        run: |
+          url="https://github.com/crazywhalecc/static-php-cli/releases/download/${SPC_VERSION}/${{ matrix.spc }}"
+          if [[ "${{ matrix.spc }}" == *.exe ]]; then
+            curl -fsSL "$url" -o spc.exe
+            echo "SPC=./spc.exe" >> "$GITHUB_ENV"
+            echo "EXT=$EXTENSIONS" >> "$GITHUB_ENV"
+            echo "PHP_BIN=buildroot/bin/php.exe" >> "$GITHUB_ENV"
+          else
+            curl -fsSL "$url" | tar -xz
+            chmod +x spc
+            echo "SPC=./spc" >> "$GITHUB_ENV"
+            echo "EXT=$EXTENSIONS,$UNIX_EXTENSIONS" >> "$GITHUB_ENV"
+            echo "PHP_BIN=buildroot/bin/php" >> "$GITHUB_ENV"
+          fi
+
+      # A version without a final release yet (8.6 in autumn 2026) is built from php.net's
+      # newest release candidate, and marked as a prerelease below.
+      - name: Find PHP source
+        shell: bash
+        run: |
+          minor="${{ matrix.php }}"
+          if curl -fsSL "https://www.php.net/releases/index.php?json&version=$minor" | jq -e .version > /dev/null; then
+            echo "Final release of PHP $minor exists"
+          else
+            url=$(curl -fsSL "https://www.php.net/release-candidates.php?format=json" | jq -r --arg v "$minor.0" '.[$v] | select(.active) | .release.files.xz.path')
+            [ -n "$url" ] && [ "$url" != null ] || { echo "::error::No release or release candidate for PHP $minor"; exit 1; }
+            echo "Using $url"
+            echo "CUSTOM_SOURCE=-U php-src:$url" >> "$GITHUB_ENV"
+          fi
+
+      - name: Prepare build tools
+        run: ${{ env.SPC }} doctor --auto-fix
+
+      - uses: actions/cache@v6
+        with:
+          path: downloads
+          # A new release candidate changes CUSTOM_SOURCE, so it gets a fresh cache.
+          key: spc-downloads-${{ matrix.target }}-${{ matrix.php }}-${{ env.SPC_VERSION }}-${{ env.CUSTOM_SOURCE }}
+
+      - name: Download sources
+        run: ${{ env.SPC }} download --with-php="${{ matrix.php }}" --for-extensions="${{ env.EXT }}" --prefer-pre-built ${{ env.CUSTOM_SOURCE }}
+
+      - name: Build
+        run: ${{ env.SPC }} build "${{ env.EXT }}" --build-cli
+
+      # spc only prints "command failed"; the compiler output is in its own log files.
+      - name: Show build log
+        if: failure()
+        shell: bash
+        run: |
+          for f in log/spc.shell.log log/spc.output.log; do
+            [ -f "$f" ] && { echo "::group::$f"; tail -n 150 "$f"; echo "::endgroup::"; }
+          done
+          grep -nE "error C[0-9]+|fatal error|LNK[0-9]+" log/spc.shell.log 2>/dev/null | head -40 || true
+
+      - name: Smoke test
+        shell: bash
+        run: |
+          "$PHP_BIN" -v
+          # Capture first: `php -m | grep -q` can fail under pipefail when grep exits early.
+          modules=$("$PHP_BIN" -m)
+          echo "$modules"
+          for ext in intl pdo_sqlite pdo_pgsql pdo_mysql redis mbstring openssl sodium zip; do
+            grep -qix "$ext" <<< "$modules" || { echo "::error::missing extension: $ext"; exit 1; }
+          done
+          "$PHP_BIN" -r 'echo (new NumberFormatter("da_DK", NumberFormatter::CURRENCY))->formatCurrency(1234.5, "DKK"), PHP_EOL;'
+
+      - name: Package
+        shell: bash
+        run: |
+          full=$("$PHP_BIN" -r 'echo PHP_VERSION;')
+          mkdir -p dist
+          if [[ "${{ matrix.target }}" == windows-* ]]; then
+            name="php-${full}-cli-${{ matrix.target }}.zip"
+            (cd buildroot/bin && 7z a "../../dist/$name" php.exe > /dev/null)
+          else
+            name="php-${full}-cli-${{ matrix.target }}.tar.gz"
+            tar -czf "dist/$name" -C buildroot/bin php
+          fi
+          (cd dist && (sha256sum "$name" 2>/dev/null || shasum -a 256 "$name") | awk '{print $1}' > "$name.sha256")
+          ls -la dist
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: php-${{ matrix.php }}-${{ matrix.target }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    # Publish whatever built, so one failing platform doesn't hold back the others.
+    if: ${{ !cancelled() }}
+    needs: build
+    runs-on: ubuntu-latest
+    concurrency: php-publish
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: php-*
+          path: dist
+          merge-multiple: true
+
+      - name: Releases and php.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          shopt -s nullglob
+          path=php.json
+          existing=$(gh api "repos/$REPO/contents/$path" --jq .content 2>/dev/null | base64 -d 2>/dev/null || echo '{}')
+          manifest=${existing:-'{}'}
+
+          for full in $(ls dist | sed -nE 's/^php-([0-9]+\.[0-9]+\.[0-9]+[A-Za-z0-9]*)-cli-.*\.(tar\.gz|zip)$/\1/p' | sort -u); do
+            tag="php-$full"
+            # 8.6.0RC4 and the like.
+            prerelease=false
+            [[ "$full" =~ [A-Za-z] ]] && prerelease=true
+            files=(dist/php-$full-cli-*.tar.gz dist/php-$full-cli-*.zip)
+            if gh release view "$tag" --repo "$REPO" > /dev/null 2>&1; then
+              gh release upload "$tag" "${files[@]}" --repo "$REPO" --clobber
+            else
+              gh release create "$tag" "${files[@]}" --repo "$REPO" --target main \
+                $([ "$prerelease" = true ] && echo --prerelease) \
+                --title "PHP $full" \
+                --notes "Static PHP $full for Apsara, built with static-php-cli $SPC_VERSION. Extensions: $EXTENSIONS (+ $UNIX_EXTENSIONS on macOS)."
+            fi
+
+            minor=${full%.*}
+            for file in "${files[@]}"; do
+              name=$(basename "$file")
+              target=$(sed -E 's/^php-[0-9A-Za-z.]+-cli-(.*)\.(tar\.gz|zip)$/\1/' <<< "$name")
+              manifest=$(jq --arg minor "$minor" --arg full "$full" --arg target "$target" --argjson pre "$prerelease" \
+                --arg url "https://github.com/$REPO/releases/download/$tag/$name" \
+                --arg sha "$(cat "$file.sha256")" \
+                '.[$minor] |= (if (.version // "0") != $full then {version: $full, prerelease: $pre, files: {}} else . end)
+                 | .[$minor].files[$target] = {url: $url, sha256: $sha}' <<< "$manifest")
+            done
+          done
+
+          echo "$manifest" | jq -S . > php.json
+          cat php.json
+          sha=$(gh api "repos/$REPO/contents/$path" --jq .sha 2>/dev/null || true)
+          gh api -X PUT "repos/$REPO/contents/$path" \
+            -f message="PHP builds" \
+            -f content="$(base64 -w0 php.json)" \
+            ${sha:+-f sha="$sha"} > /dev/null

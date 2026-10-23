@@ -1,0 +1,52 @@
+{
+  "8.3": {
+    "files": {
+      "macos-aarch64": {
+        "sha256": "c9e6ca357857efc02a42e9496d8e8098879996ca2c67631842c7d8df2fd7b1b9",
+        "url": "https://github.com/EmilMoe/apsara-runtime/releases/download/php-8.3.36/php-8.3.36-cli-macos-aarch64.tar.gz"
+      },
+      "macos-x86_64": {
+        "sha256": "a35cd6b48ae8fbae9d9a4a0ac9fee8f8dd0f05682d831aa5e031c0b2b40afbb4",
+        "url": "https://github.com/EmilMoe/apsara-runtime/releases/download/php-8.3.36/php-8.3.36-cli-macos-x86_64.tar.gz"
+      }
+    },
+    "prerelease": false,
+    "version": "8.3.36"
+  },
+  "8.4": {
+    "files": {
+      "macos-aarch64": {
+        "sha256": "947253de712feac11bdccbd9bcd41108139adab0cf7a69f9a8e98cfca96fbbe5",
+        "url": "https://github.com/EmilMoe/apsara-runtime/releases/download/php-8.4.27/php-8.4.27-cli-macos-aarch64.tar.gz"
+      },
+      "macos-x86_64": {
+        "sha256": "ce0083e809e47df49ee12ce9982c1070ce2f8c600de33249a8f9adcc1f7cd173",
+        "url": "https://github.com/EmilMoe/apsara-runtime/releases/download/php-8.4.27/php-8.4.27-cli-macos-x86_64.tar.gz"
+      },
+      "windows-x64": {
+        "sha256": "33d1f3931dfe57ab1766724e85556c51fcdb1ec151cd12d5a5e09addfdf51bb1",
+        "url": "https://github.com/EmilMoe/apsara-runtime/releases/download/php-8.4.27/php-8.4.27-cli-windows-x64.zip"
+      }
+    },
+    "prerelease": false,
+    "version": "8.4.27"
+  },
+  "8.5": {
+    "files": {
+      "macos-aarch64": {
+        "sha256": "9fa1f65a94adfab8f8a46ddc7586c8555ba0a68b0479344ca9e28398eef08ab9",
+        "url": "https://github.com/EmilMoe/apsara-runtime/releases/download/php-8.5.12/php-8.5.12-cli-macos-aarch64.tar.gz"
+      },
+      "macos-x86_64": {
+        "sha256": "5c5d60ae3e8633ca5af65d75893750cae8e8161c71425acd7bfd3e2794715f62",
+        "url": "https://github.com/EmilMoe/apsara-runtime/releases/download/php-8.5.12/php-8.5.12-cli-macos-x86_64.tar.gz"
+      },
+      "windows-x64": {
+        "sha256": "249ecb1d070653e5cdd105d35e150c8f5587dbe0881f2ef242b1853733f13f6c",
+        "url": "https://github.com/EmilMoe/apsara-runtime/releases/download/php-8.5.12/php-8.5.12-cli-windows-x64.zip"
+      }
+    },
+    "prerelease": false,
+    "version": "8.5.12"
+  }
+}
