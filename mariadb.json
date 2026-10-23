@@ -1,1 +1,28 @@
-{}
+{
+  "10.11": {
+    "files": {
+      "macos-aarch64": {
+        "sha256": "5aff72ce8cd5cf246e12fb9abe6814032660b4181b7ec2236c8af855d9ad381a",
+        "url": "https://github.com/EmilMoe/apsara-runtime/releases/download/mariadb-10.11.19/mariadb-10.11.19-macos-aarch64.tar.gz"
+      },
+      "macos-x86_64": {
+        "sha256": "926655ef036952f43108db4185f797aad3eb0cd279abaf38eba323e05e651855",
+        "url": "https://github.com/EmilMoe/apsara-runtime/releases/download/mariadb-10.11.19/mariadb-10.11.19-macos-x86_64.tar.gz"
+      }
+    },
+    "version": "10.11.19"
+  },
+  "11.8": {
+    "files": {
+      "macos-aarch64": {
+        "sha256": "6143050d8e9b52f18e06cb8266dd50980089f9e51b3a16477151ed51067aab38",
+        "url": "https://github.com/EmilMoe/apsara-runtime/releases/download/mariadb-11.8.9/mariadb-11.8.9-macos-aarch64.tar.gz"
+      },
+      "macos-x86_64": {
+        "sha256": "7120a3cda8e60bb8294f4a50087532facfca3d6b2732fd32129515a21bfea1bf",
+        "url": "https://github.com/EmilMoe/apsara-runtime/releases/download/mariadb-11.8.9/mariadb-11.8.9-macos-x86_64.tar.gz"
+      }
+    },
+    "version": "11.8.9"
+  }
+}
