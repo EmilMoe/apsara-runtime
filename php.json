@@ -2,12 +2,12 @@
   "8.3": {
     "files": {
       "macos-aarch64": {
-        "sha256": "f6e63cefd501e620812e6e2b178ed491dead546f540f3785383917ee7f710ce0",
+        "sha256": "3e1534be4d9aa34115a5f24950edc514cff0153c5361e2a5711fe4f41c2e9454",
         "url": "https://github.com/EmilMoe/apsara-runtime/releases/download/php-8.3.36/php-8.3.36-cli-macos-aarch64.tar.gz",
         "xdebug": true
       },
       "macos-x86_64": {
-        "sha256": "1e6897b66e408d062ce6ecfc0d9b3c4ead8cb86e5c0e3d47c667a4913da20695",
+        "sha256": "7dd97ca37108ce2a44f79f20c01898352d2931ea1f2de93a3e9cab99cbc1ab86",
         "url": "https://github.com/EmilMoe/apsara-runtime/releases/download/php-8.3.36/php-8.3.36-cli-macos-x86_64.tar.gz",
         "xdebug": true
       }
