@@ -1,0 +1,136 @@
+name: Redis
+
+# redis-server and redis-cli for macOS, built from Redis' official source releases, so
+# Apsara doesn't have to compile Redis on the user's Mac (which needs Xcode's Command Line
+# Tools). Windows uses the ready-made redis-windows builds directly.
+#
+# Each version gets a release redis-<version> with one archive per platform, holding
+# redis-server and redis-cli at the top level, and redis.json lists the newest build per
+# major version (the app reads that file).
+on:
+  workflow_dispatch:
+    inputs:
+      majors:
+        description: Redis major versions as a JSON list
+        required: true
+        default: '["8"]'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Redis ${{ matrix.major }} (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        major: ${{ fromJSON(inputs.majors) }}
+        target: [macos-aarch64, macos-x86_64]
+        include:
+          - target: macos-aarch64
+            runner: macos-15
+          - target: macos-x86_64
+            runner: macos-15-intel
+    env:
+      # Runs on macOS 12 and newer, not just the runner's version.
+      MACOSX_DEPLOYMENT_TARGET: "12.0"
+    steps:
+      - name: Find the newest release
+        run: |
+          file=$(curl -fsSL https://download.redis.io/releases/ \
+            | grep -oE "redis-${{ matrix.major }}\.[0-9]+\.[0-9]+\.tar\.gz" | sort -uV | tail -n 1)
+          [ -n "$file" ] || { echo "::error::No Redis ${{ matrix.major }} release"; exit 1; }
+          version=${file#redis-}; version=${version%.tar.gz}
+          echo "Building Redis $version"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "FILE=$file" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: |
+          curl -fsSL "https://download.redis.io/releases/$FILE" | tar -xz
+          make -C "redis-$VERSION/src" -j "$(sysctl -n hw.ncpu)" BUILD_TLS=no redis-server redis-cli
+
+      - name: Smoke test
+        run: |
+          bin="redis-$VERSION/src"
+          "$bin/redis-server" --version
+          otool -L "$bin/redis-server"
+          # Only system libraries, so it runs on any Mac.
+          if otool -L "$bin/redis-server" | tail -n +2 | grep -vE "^\s+/(usr/lib|System/Library)/"; then
+            echo "::error::redis-server links to non-system libraries"; exit 1
+          fi
+          "$bin/redis-server" --port 6399 --daemonize yes --save "" --appendonly no
+          sleep 1
+          [ "$("$bin/redis-cli" -p 6399 ping)" = PONG ]
+          "$bin/redis-cli" -p 6399 shutdown nosave || true
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          name="redis-$VERSION-${{ matrix.target }}.tar.gz"
+          tar -czf "dist/$name" -C "redis-$VERSION/src" redis-server redis-cli
+          (cd dist && shasum -a 256 "$name" | awk '{print $1}' > "$name.sha256")
+          ls -la dist
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: redis-${{ matrix.major }}-${{ matrix.target }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    if: ${{ !cancelled() }}
+    needs: build
+    runs-on: ubuntu-latest
+    concurrency: redis-publish
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: redis-*
+          path: dist
+          merge-multiple: true
+
+      - name: Releases and redis.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          shopt -s nullglob
+          path=redis.json
+          existing=$(gh api "repos/$REPO/contents/$path" --jq .content 2>/dev/null | base64 -d 2>/dev/null || echo '{}')
+          manifest=${existing:-'{}'}
+
+          for version in $(ls dist | sed -nE 's/^redis-([0-9]+\.[0-9]+\.[0-9]+)-.*\.tar\.gz$/\1/p' | sort -u); do
+            tag="redis-$version"
+            files=(dist/redis-$version-*.tar.gz)
+            if gh release view "$tag" --repo "$REPO" > /dev/null 2>&1; then
+              gh release upload "$tag" "${files[@]}" --repo "$REPO" --clobber
+            else
+              gh release create "$tag" "${files[@]}" --repo "$REPO" --target main --latest=false \
+                --title "Redis $version" \
+                --notes "redis-server and redis-cli $version for macOS, built from https://download.redis.io/releases/redis-$version.tar.gz (BUILD_TLS=no, macOS 12+)."
+            fi
+
+            major=${version%%.*}
+            for file in "${files[@]}"; do
+              name=$(basename "$file")
+              target=$(sed -E 's/^redis-[0-9.]+-(.*)\.tar\.gz$/\1/' <<< "$name")
+              manifest=$(jq --arg major "$major" --arg version "$version" --arg target "$target" \
+                --arg url "https://github.com/$REPO/releases/download/$tag/$name" \
+                --arg sha "$(cat "$file.sha256")" \
+                '.[$major] |= (if (.version // "0") != $version then {version: $version, files: {}} else . end)
+                 | .[$major].files[$target] = {url: $url, sha256: $sha}' <<< "$manifest")
+            done
+          done
+
+          echo "$manifest" | jq -S . > redis.json
+          cat redis.json
+          sha=$(gh api "repos/$REPO/contents/$path" --jq .sha 2>/dev/null || true)
+          gh api -X PUT "repos/$REPO/contents/$path" \
+            -f message="Redis builds" \
+            -f content="$(base64 -w0 redis.json)" \
+            ${sha:+-f sha="$sha"} > /dev/null

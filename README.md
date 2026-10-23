@@ -19,3 +19,10 @@ tokenizer, xml, xmlreader, xmlwriter, zip, zlib. macOS also has gmp, pcntl, posi
 xsl and imagick.
 
 PHP 8.6 waits for static-php-cli v3.
+
+## Redis
+
+`redis-server` and `redis-cli` for macOS (Apple Silicon and Intel, macOS 12+), built from
+Redis' official source releases by `.github/workflows/redis.yml`, so Apsara doesn't have to
+compile Redis on the user's Mac. [`redis.json`](redis.json) lists the newest build per major
+version. Windows uses the [redis-windows](https://github.com/redis-windows/redis-windows) builds.
