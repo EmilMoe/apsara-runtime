@@ -114,11 +114,23 @@ jobs:
         run: ${{ env.SPC }} download --with-php="${{ matrix.php }}" --for-extensions="${{ env.DOWNLOAD_EXT }}" --prefer-pre-built ${{ env.CUSTOM_SOURCE }} ${{ env.XDEBUG_SOURCE }}
 
       - name: Build
+        if: matrix.target != 'windows-x64'
         run: ${{ env.SPC }} build "${{ env.EXT }}" --build-cli ${{ env.BUILD_SHARED }}
-        env:
-          # The prebuilt ICU (78+) needs C++17, which PHP 8.3's Windows build doesn't ask for when it
-          # compiles intl (8.4+ does). MSVC adds CL to every cl.exe call; macOS ignores it.
-          CL: ${{ matrix.target == 'windows-x64' && '/std:c++17' || '' }}
+
+      # The prebuilt ICU (78+) needs C++17, which PHP 8.3's Windows build doesn't ask for when it
+      # compiles intl (8.4+ does). C++17 can't be set for everything (libxml2 builds as C11), so a
+      # failed build goes again with it: the libraries are built by then and are skipped, so only
+      # PHP itself gets it. MSVC adds CL to every cl.exe call.
+      - name: Build (Windows)
+        if: matrix.target == 'windows-x64'
+        run: |
+          & ${{ env.SPC }} build "${{ env.EXT }}" --build-cli
+          if ($LASTEXITCODE -ne 0) {
+            Write-Output "Building again with /std:c++17 for PHP itself"
+            $env:CL = "/std:c++17"
+            & ${{ env.SPC }} build "${{ env.EXT }}" --build-cli
+          }
+          exit $LASTEXITCODE
 
       # spc only prints "command failed"; the compiler output is in its own log files.
       - name: Show build log
