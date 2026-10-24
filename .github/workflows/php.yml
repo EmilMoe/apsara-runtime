@@ -113,24 +113,25 @@ jobs:
       - name: Download sources
         run: ${{ env.SPC }} download --with-php="${{ matrix.php }}" --for-extensions="${{ env.DOWNLOAD_EXT }}" --prefer-pre-built ${{ env.CUSTOM_SOURCE }} ${{ env.XDEBUG_SOURCE }}
 
-      - name: Build
-        if: matrix.target != 'windows-x64'
-        run: ${{ env.SPC }} build "${{ env.EXT }}" --build-cli ${{ env.BUILD_SHARED }}
-
-      # The prebuilt ICU (78+) needs C++17, which PHP 8.3's Windows build doesn't ask for when it
-      # compiles intl (8.4+ does). C++17 can't be set for everything (libxml2 builds as C11), so a
-      # failed build goes again with it: the libraries are built by then and are skipped, so only
-      # PHP itself gets it. MSVC adds CL to every cl.exe call.
-      - name: Build (Windows)
+      # The prebuilt ICU (78+) needs C++17. PHP 8.4+ compiles intl with /std:c++17 on Windows, 8.3
+      # doesn't, so its config.w32 gets the flag before the build. Only for intl: a global C++17
+      # clashes with libxml2's C11. static-php-cli reuses an extracted source whose archive hash
+      # matches, so the change stays.
+      - name: C++17 for intl (Windows)
         if: matrix.target == 'windows-x64'
         run: |
-          & ${{ env.SPC }} build "${{ env.EXT }}" --build-cli
-          if ($LASTEXITCODE -ne 0) {
-            Write-Output "Building again with /std:c++17 for PHP itself"
-            $env:CL = "/std:c++17"
-            & ${{ env.SPC }} build "${{ env.EXT }}" --build-cli
+          & ${{ env.SPC }} extract php-src
+          $file = "source/php-src/ext/intl/config.w32"
+          $text = Get-Content $file -Raw
+          if ($text -notmatch "/std:c\+\+17") {
+            $text = $text.Replace('ADD_FLAG("CFLAGS_INTL", "/EHsc', 'ADD_FLAG("CFLAGS_INTL", "/std:c++17 /EHsc')
+            if ($text -notmatch "/std:c\+\+17") { Write-Output "::error::Could not add /std:c++17 to $file"; exit 1 }
+            Set-Content -Path $file -Value $text -NoNewline
+            Write-Output "Added /std:c++17 to intl"
           }
-          exit $LASTEXITCODE
+
+      - name: Build
+        run: ${{ env.SPC }} build "${{ env.EXT }}" --build-cli ${{ env.BUILD_SHARED }}
 
       # spc only prints "command failed"; the compiler output is in its own log files.
       - name: Show build log
